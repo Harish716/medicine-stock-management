@@ -5,6 +5,7 @@ import SearchFilter from '../components/SearchFilter';
 import MedicineTable from '../components/MedicineTable';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
+import ExportButtons from '../components/ExportButtons';
 import { getMedicines, deleteMedicine } from '../services/api';
 
 export default function StockRegister() {
@@ -78,6 +79,11 @@ export default function StockRegister() {
         onSearchChange={setSearch}
         onStatusChange={setStatus}
         resultCount={medicines.length}
+      />
+
+      <ExportButtons
+        medicines={medicines}
+        filters={{ search, status }}
       />
 
       {loading && <LoadingSpinner message="Loading stock records…" />}

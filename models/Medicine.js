@@ -150,4 +150,4 @@ medicineSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-module.exports = mongoose.model('Medicine', medicineSchema);
+module.exports = mongoose.model('Medicine', medicineSchema, 'Med_Stock');
