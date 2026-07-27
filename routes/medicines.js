@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const Medicine = require('../models/Medicine');
 
+// ─── Concurrency guard (Change 2) ────────────────────────────────────────────
+// Tracks entry_ids that are currently being saved. If a second simultaneous
+// POST arrives for the same entry_id before the first finishes, it is refused
+// with HTTP 409 so exactly one request wins.
+const inFlightEntries = new Set();
+
 // ─── Validation helper ────────────────────────────────────────────────────────
 function validateMedicineInput(body) {
   const errors = [];
@@ -21,8 +27,19 @@ function validateMedicineInput(body) {
     errors.push('Quantity Out cannot be negative');
   if (Number(quantity_out) > Number(quantity_in))
     errors.push('Quantity Out cannot exceed Quantity In (balance would go negative)');
-  if (!expiry_date)
+  if (!expiry_date) {
     errors.push('Expiry date is required');
+  } else {
+    // Change 1: server-side check — reject dates that are already in the past
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expiry_date);
+    if (isNaN(exp.getTime())) {
+      errors.push('Expiry date is invalid');
+    } else if (exp < today) {
+      errors.push('Expiry date cannot be in the past');
+    }
+  }
   if (!date)
     errors.push('Entry date is required');
 
@@ -91,14 +108,26 @@ router.get('/:id', async (req, res) => {
 
 // ─── POST /api/medicines ──────────────────────────────────────────────────────
 router.post('/', async (req, res) => {
-  try {
-    const errors = validateMedicineInput(req.body);
-    if (errors.length > 0) {
-      return res.status(400).json({ success: false, message: errors[0], errors });
-    }
+  // Change 1: server-side validation (includes past-expiry-date check)
+  const errors = validateMedicineInput(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ success: false, message: errors[0], errors });
+  }
 
+  const { entry_id } = req.body;
+
+  // Change 2: concurrency guard — refuse a second in-flight save for same entry_id
+  if (inFlightEntries.has(entry_id)) {
+    return res.status(409).json({
+      success: false,
+      message: 'A save for this Entry ID is already in progress. Please wait and retry.',
+    });
+  }
+  inFlightEntries.add(entry_id);
+
+  try {
     const medicine = new Medicine({
-      entry_id: req.body.entry_id,
+      entry_id,
       medicine_name: req.body.medicine_name,
       batch_no: req.body.batch_no || null,
       quantity_in: Number(req.body.quantity_in),
@@ -119,6 +148,9 @@ router.post('/', async (req, res) => {
       });
     }
     res.status(400).json({ success: false, message: err.message });
+  } finally {
+    // Always release the lock so future requests for this entry_id are accepted
+    inFlightEntries.delete(entry_id);
   }
 });
 
